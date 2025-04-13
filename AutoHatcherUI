@@ -1,0 +1,278 @@
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Players = game:GetService("Players")
+local TweenService = game:GetService("TweenService")
+
+local remote = ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Framework"):WaitForChild("Network"):WaitForChild("Remote"):WaitForChild("Event")
+local playerGui = Players.LocalPlayer:WaitForChild("PlayerGui")
+local genericFolder = workspace:WaitForChild("Rendered"):WaitForChild("Generic")
+local player = Players.LocalPlayer
+
+local old = playerGui:FindFirstChild("EggHatcherUI")
+if old then old:Destroy() end
+
+local ui = Instance.new("ScreenGui", playerGui)
+ui.Name = "EggHatcherUI"
+ui.ResetOnSpawn = false
+
+local main = Instance.new("Frame", ui)
+main.Size = UDim2.new(0, 270, 0, 350)
+main.Position = UDim2.new(1, -280, 0.5, -175)
+main.BackgroundTransparency = 1
+main.BorderSizePixel = 0
+main.Active = true
+main.Draggable = true
+
+local bg = Instance.new("Frame", main)
+bg.Size = UDim2.new(1, 0, 1, 0)
+bg.Position = UDim2.new(0, 0, 0, 0)
+bg.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+bg.BackgroundTransparency = 0
+bg.ZIndex = 0
+bg.BorderSizePixel = 0
+Instance.new("UICorner", bg).CornerRadius = UDim.new(0, 12)
+Instance.new("UICorner", main).CornerRadius = UDim.new(0, 12)
+
+local stroke = Instance.new("UIStroke", main)
+stroke.Thickness = 2
+stroke.Color = Color3.fromRGB(0, 191, 255)
+stroke.Transparency = 0.3
+stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+
+local gradient = Instance.new("UIGradient", bg)
+gradient.Rotation = 45
+gradient.Color = ColorSequence.new({
+    ColorSequenceKeypoint.new(0, Color3.fromRGB(138, 43, 226)),
+    ColorSequenceKeypoint.new(0.5, Color3.fromRGB(0, 191, 255)),
+    ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 20, 147))
+})
+gradient.Transparency = NumberSequence.new({
+    NumberSequenceKeypoint.new(0, 0),
+    NumberSequenceKeypoint.new(0.5, 0),
+    NumberSequenceKeypoint.new(1, 0)
+})
+
+local function animateGradient()
+    local tweenInfo = TweenInfo.new(8, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true)
+    local goal = { Offset = Vector2.new(1, 1) }
+    local tween = TweenService:Create(gradient, tweenInfo, goal)
+    tween:Play()
+end
+task.spawn(animateGradient)
+
+local container = Instance.new("Frame", main)
+container.Size = UDim2.new(1, 0, 1, 0)
+container.BackgroundTransparency = 1
+container.ZIndex = 1
+
+local padding = Instance.new("UIPadding", container)
+padding.PaddingTop = UDim.new(0, 12)
+padding.PaddingBottom = UDim.new(0, 12)
+padding.PaddingLeft = UDim.new(0, 12)
+padding.PaddingRight = UDim.new(0, 12)
+
+local layout = Instance.new("UIListLayout", container)
+layout.SortOrder = Enum.SortOrder.LayoutOrder
+layout.Padding = UDim.new(0, 8)
+
+local title = Instance.new("TextLabel", container)
+title.Size = UDim2.new(1, 0, 0, 32)
+title.BackgroundTransparency = 1
+title.Text = "🎉 Egg Hatcher"
+title.TextColor3 = Color3.fromRGB(255, 255, 255)
+title.Font = Enum.Font.GothamBold
+title.TextSize = 20
+local titleShadow = Instance.new("UIStroke", title)
+titleShadow.Thickness = 1
+titleShadow.Color = Color3.fromRGB(0, 0, 0)
+titleShadow.Transparency = 0.3
+
+local selectedEggLabel = Instance.new("TextLabel", container)
+selectedEggLabel.Size = UDim2.new(1, 0, 0, 30)
+selectedEggLabel.BackgroundColor3 = Color3.fromRGB(240, 240, 250)
+selectedEggLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+selectedEggLabel.Font = Enum.Font.Gotham
+selectedEggLabel.TextSize = 14
+selectedEggLabel.Text = "Selected: None"
+selectedEggLabel.TextXAlignment = Enum.TextXAlignment.Center
+Instance.new("UICorner", selectedEggLabel)
+local selectedShadow = Instance.new("UIStroke", selectedEggLabel)
+selectedShadow.Thickness = 1
+selectedShadow.Color = Color3.fromRGB(0, 0, 0)
+selectedShadow.Transparency = 0.3
+
+local dropdown = Instance.new("ScrollingFrame", container)
+dropdown.Size = UDim2.new(1, 0, 0, 110)
+dropdown.BackgroundColor3 = Color3.fromRGB(245, 245, 255)
+dropdown.CanvasSize = UDim2.new(0, 0, 0, 0)
+dropdown.AutomaticCanvasSize = Enum.AutomaticSize.Y
+dropdown.ScrollBarThickness = 4
+dropdown.ClipsDescendants = true
+Instance.new("UICorner", dropdown)
+
+local dropdownLayout = Instance.new("UIListLayout", dropdown)
+dropdownLayout.Padding = UDim.new(0, 4)
+dropdownLayout.SortOrder = Enum.SortOrder.LayoutOrder
+
+local selectedEgg = nil
+local looping = false
+local mode = "Manual"
+
+local function findClosestEgg()
+    local character = player.Character
+    if not character or not character:FindFirstChild("HumanoidRootPart") then
+        return nil
+    end
+
+    local playerPos = character.HumanoidRootPart.Position
+    local closestEgg = nil
+    local closestDistance = math.huge
+
+    for _, obj in ipairs(genericFolder:GetChildren()) do
+        if obj:IsA("Model") and obj.Name:lower():find("egg") then
+            local eggPos = obj.WorldPivot.Position
+            local distance = (playerPos - eggPos).Magnitude
+            if distance < closestDistance then
+                closestDistance = distance
+                closestEgg = obj
+            end
+        end
+    end
+
+    return closestEgg and closestEgg.Name or nil
+end
+
+local function refreshDropdown()
+    -- Store the current scroll position
+    local currentScrollPosition = dropdown.CanvasPosition
+
+    -- Clear existing dropdown items
+    for _, c in ipairs(dropdown:GetChildren()) do
+        if c:IsA("TextButton") then c:Destroy() end
+    end
+
+    -- Repopulate the dropdown
+    for _, obj in ipairs(genericFolder:GetChildren()) do
+        if obj:IsA("Model") and obj.Name:lower():find("egg") then
+            local b = Instance.new("TextButton", dropdown)
+            b.Size = UDim2.new(1, 0, 0, 28)
+            b.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+            b.TextColor3 = Color3.fromRGB(0, 0, 0)
+            b.Font = Enum.Font.Gotham
+            b.TextSize = 14
+            b.Text = obj.Name
+            b.ZIndex = 2
+            Instance.new("UICorner", b)
+            b.MouseEnter:Connect(function() b.BackgroundColor3 = Color3.fromRGB(230, 230, 255) end)
+            b.MouseLeave:Connect(function() b.BackgroundColor3 = Color3.fromRGB(255, 255, 255) end)
+            b.MouseButton1Click:Connect(function()
+                if mode == "Manual" then
+                    selectedEgg = obj.Name
+                    selectedEggLabel.Text = "Selected: " .. selectedEgg
+                end
+            end)
+        end
+    end
+
+    -- Restore the scroll position after repopulating
+    -- Use task.defer to ensure the CanvasPosition is set after the layout updates
+    task.defer(function()
+        dropdown.CanvasPosition = currentScrollPosition
+    end)
+end
+
+task.spawn(function()
+    while true do
+        refreshDropdown()
+        task.wait(0.5)
+    end
+end)
+
+local modeBtn = Instance.new("TextButton", container)
+modeBtn.Size = UDim2.new(1, 0, 0, 34)
+modeBtn.BackgroundColor3 = Color3.fromRGB(138, 43, 226)
+modeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+modeBtn.Text = "Mode: Manual"
+modeBtn.Font = Enum.Font.GothamBold
+modeBtn.TextSize = 15
+Instance.new("UICorner", modeBtn)
+modeBtn.MouseEnter:Connect(function() modeBtn.BackgroundColor3 = Color3.fromRGB(118, 23, 206) end)
+modeBtn.MouseLeave:Connect(function() modeBtn.BackgroundColor3 = Color3.fromRGB(138, 43, 226) end)
+modeBtn.MouseButton1Click:Connect(function()
+    mode = (mode == "Manual") and "Closest" or "Manual"
+    modeBtn.Text = "Mode: " .. mode
+    if mode == "Closest" then
+        dropdown.Visible = false
+        selectedEggLabel.Text = "Targeting Closest Egg"
+        selectedEgg = nil
+    else
+        dropdown.Visible = true
+        selectedEggLabel.Text = "Selected: None"
+        selectedEgg = nil
+    end
+end)
+
+local hatchBtn = Instance.new("TextButton", container)
+hatchBtn.Size = UDim2.new(1, 0, 0, 34)
+hatchBtn.BackgroundColor3 = Color3.fromRGB(0, 191, 255)
+hatchBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+hatchBtn.Text = "🔁 Hatch Once"
+hatchBtn.Font = Enum.Font.GothamBold
+hatchBtn.TextSize = 15
+Instance.new("UICorner", hatchBtn)
+hatchBtn.MouseEnter:Connect(function() hatchBtn.BackgroundColor3 = Color3.fromRGB(0, 171, 235) end)
+hatchBtn.MouseLeave:Connect(function() hatchBtn.BackgroundColor3 = Color3.fromRGB(0, 191, 255) end)
+hatchBtn.MouseButton1Click:Connect(function()
+    if mode == "Manual" then
+        if selectedEgg then
+            remote:FireServer("HatchEgg", tostring(selectedEgg), 6)
+        end
+    else
+        local closestEgg = findClosestEgg()
+        if closestEgg then
+            remote:FireServer("HatchEgg", tostring(closestEgg), 6)
+        end
+    end
+end)
+
+local loopBtn = Instance.new("TextButton", container)
+loopBtn.Size = UDim2.new(1, 0, 0, 34)
+loopBtn.BackgroundColor3 = Color3.fromRGB(255, 20, 147)
+loopBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+loopBtn.Text = "⏱ Auto Hatch: OFF"
+loopBtn.Font = Enum.Font.GothamBold
+loopBtn.TextSize = 15
+Instance.new("UICorner", loopBtn)
+modeBtn.MouseEnter:Connect(function() modeBtn.BackgroundColor3 = Color3.fromRGB(118, 23, 206) end)
+modeBtn.MouseLeave:Connect(function() modeBtn.BackgroundColor3 = Color3.fromRGB(138, 43, 226) end)
+loopBtn.MouseEnter:Connect(function()
+    loopBtn.BackgroundColor3 = looping and Color3.fromRGB(0, 191, 255) or Color3.fromRGB(235, 0, 127)
+end)
+loopBtn.MouseLeave:Connect(function()
+    loopBtn.BackgroundColor3 = looping and Color3.fromRGB(0, 191, 255) or Color3.fromRGB(255, 20, 147)
+end)
+loopBtn.MouseButton1Click:Connect(function()
+    looping = not looping
+    loopBtn.Text = looping and "⏱ Auto Hatch: ON" or "⏱ Auto Hatch: OFF"
+    loopBtn.BackgroundColor3 = looping and Color3.fromRGB(0, 191, 255) or Color3.fromRGB(255, 20, 147)
+end)
+
+task.spawn(function()
+    while true do
+        task.wait(1)
+        if looping then
+            if mode == "Manual" then
+                if selectedEgg then
+                    remote:FireServer("HatchEgg", tostring(selectedEgg), 6)
+                end
+            else
+                local closestEgg = findClosestEgg()
+                if closestEgg then
+                    remote:FireServer("HatchEgg", tostring(closestEgg), 6)
+                    selectedEggLabel.Text = "Targeting: " .. closestEgg
+                else
+                    selectedEggLabel.Text = "No Eggs Found"
+                end
+            end
+        end
+    end
+end)
